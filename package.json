@@ -8,9 +8,11 @@
   "main": "index.js",
   "scripts": {
     "dev": "nodemon index.js",
-    "benchmark": "node benchmark.js"
+    "benchmark": "node benchmark.js",
+    "worker": "node queue/eventWorker.js"
   },
   "dependencies": {
+    "bullmq": "^6.3.4",
     "docker": "^1.0.0",
     "dotenv": "^17.4.2",
     "express": "^5.2.1",
