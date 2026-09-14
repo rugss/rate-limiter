@@ -1,5 +1,6 @@
 import { Worker } from "bullmq";
 import dotenv from "dotenv"
+import { pool } from "../db/db.js";
 dotenv.config()
 
 
@@ -10,7 +11,6 @@ const conn = {
 
 }
 
-const processedEvents = new Set();
 
 
 
@@ -23,14 +23,6 @@ export const eventWorker = new Worker(
     console.log(`Attempt: ${job.attemptsMade + 1} of ${job.opts.attempts}`);
 
 
-    if(processedEvents.has(eventId))
-    {
-        console.warn(`[DUPLICATE GUARD] Event ${eventId} was already processed! skipping execution`)
-        return {status:'skipped',reason:'duplicate event'}
-
-    }
-
-
     // to simulate workload like the worker will take some time to get the process job
     await new Promise((resolve)=>setTimeout(resolve,800));
 
@@ -40,15 +32,31 @@ export const eventWorker = new Worker(
         throw new Error(`Simulated transient error on attempt ${job.attemptsMade +1}`)
     }
 
+    
+    const insertQuery = `
+    INSERT INTO processed_events (event_id, idempotency_key, event_type, payload)
+      VALUES ($1, $2, $3, $4)
+      ON CONFLICT (idempotency_key) DO NOTHING
+      RETURNING id;
+    `;
 
-    processedEvents.add(eventId)
+    const values = [eventId, eventId,type,JSON.stringify(payload)]
+    const result = await pool.query(insertQuery,values)
 
-    console.log(`Work completed and event with event id: ${eventId} processed`)
+    if(result.rowCount === 0)
+    {
+        console.warn(`[DB IDEMPOTENCY GUARD] Event ${eventId} was already recorded in PostgreSQL! Skipping commit.`)
+        return {status :'skipper', reason:"duplicate event"}
+    }
+
+
+    console.log(`✅ [DB COMMITTED] Event ${eventId} persisted with Row ID: ${result.rows[0].id}`);
 
 
 
     return{
         status:'success',
+        recordId: result.rows[0].id,
         processedAt: new Date().toISOString(),
         durationMs: Date.now() - new Date(receivedAt).getTime(),
 
